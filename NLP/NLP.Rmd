@@ -1,0 +1,305 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+
+```{r}
+library(rJava)
+library(NLP)
+library(openNLP)
+library(RWeka)
+
+```
+
+Selecionamos o txt e utilizamos "readline", que separa cada linha em um vetor diferente:
+
+Outra forma distinta de realizar a leitura é a função scan(), que não separa cada linha em um vetor diferente.
+
+```{r}
+bio <- readLines("/Volumes/Data HD/Data Science/GITHUB/Courses_DataScience/NLP/anb-jarena-lee.txt")
+print(bio)
+```
+
+A seguir, combinamos os vetores em um único vetor, utilizado paste() e adicionando um espaço em branco:
+
+```{r}
+bio <- paste(bio, collapse = " ")
+print(bio)
+```
+
+
+
+```{r}
+library(NLP)
+library(openNLP)
+library(magrittr)
+```
+
+
+Para a leitura, é necessário realizar a conversão da variável bio para uma string:
+
+```{r}
+bio <- as.String(bio)
+```
+
+## Tokenization:
+
+A tokenização consiste em quebrar o texto em unidades de significado, chamados tokens.
+
+
+1. Criamos annotators para separar palavras de sentenças.
+
+Essas funções marcam os locais na string onde as palavras e frases começam e terminam.
+
+```{r}
+word_ann <- Maxent_Word_Token_Annotator()
+sent_ann <- Maxent_Sent_Token_Annotator()
+```
+
+Esses annotators formam um condutor para anotar o texto em nossa variável bio. Primeiro temos que determinar onde estão as sentenças, então podemos determinar onde estão as palavras. Podemos aplicar essas funções de annotator aos nossos dados usando a função annotate ().
+
+
+```{r}
+bio_annotations <- annotate(bio, list(sent_ann, word_ann))
+```
+
+O resultado é um objeto de anotação. Olhando para os primeiros itens contidos no objeto, podemos ver o tipo de informação contida no objeto de anotações.
+
+```{r}
+class(bio_annotations)
+```
+
+```{r}
+head(bio_annotations)
+```
+
+Vemos que o objeto de anotação contém uma lista de sentenças (e também palavras) identificadas por posição. Ou seja, a primeira frase do documento começa no caractere 1 e termina no caractere 111. As frases também contêm informações sobre as posições das palavras que as compõem.
+
+Podemos combinar a biografia e as anotações para criar o que o pacote NLP chama de AnnotatedPlainTextDocument. Se desejarmos, também poderíamos associar metadados ao objeto usando o argumento meta =.
+
+
+```{r}
+bio_doc <- AnnotatedPlainTextDocument(bio, bio_annotations)
+```
+
+
+Agora podemos extrair informações de nosso documento usando funções de acesso como sents () para obter as frases e words () para obter as palavras. Poderíamos obter apenas o texto simples com as.character (bio_doc).
+
+
+```{r}
+sents(bio_doc) %>% head(2)
+```
+
+```{r}
+words(bio_doc) %>% head(10)
+```
+
+Isso já é útil, uma vez que poderíamos usar as listas resultantes de palavras de sentenças para realizar outros tipos de cálculos. Mas existem outros tipos de anotações que são mais imediatamente relevantes para os historiadores.
+
+## Annotating pessoas e lugares
+
+Entre os vários tipos de anotadores fornecidos pelo pacote openNLP está um anotador de entidade. Uma entidade é basicamente um nome próprio, como um nome de pessoa ou local. Usando uma técnica chamada de reconhecimento de entidade nomeada (NER), podemos extrair vários tipos de nomes de um documento. Em inglês, o OpenNLP pode encontrar datas, locais, dinheiro, organizações, porcentagens, pessoas e horários. (Os valores aceitáveis são "data", "local", "dinheiro", "organização", "porcentagem", "pessoa", "misc.". Usaremos para encontrar pessoas, lugares e organizações, uma vez que todos os três são mencionados em nosso parágrafo de amostra.
+
+Esses tipos de funções de anotador são criados usando os mesmos tipos de funções construtoras que usamos para word_ann () e sent_ann ().
+
+```{r}
+
+person_ann <- Maxent_Entity_Annotator(kind = "person")
+location_ann <- Maxent_Entity_Annotator(kind = "location")
+organization_ann <- Maxent_Entity_Annotator(kind = "organization")
+```
+
+
+Lembre-se de que passamos anteriormente uma lista de funções de anotador para a função annotate () para indicar quais tipos de anotações queríamos fazer. Criaremos uma nova lista de pipeline para manter nossos anotadores na ordem em que queremos aplicá-los e, em seguida, aplicá-la à variável bio. Então, como antes, podemos criar um AnnotatedPlainTextDocument.
+
+```{r}
+pipeline <- list(sent_ann,
+                 word_ann,
+                 person_ann,
+                 location_ann,
+                 organization_ann)
+bio_annotations <- annotate(bio, pipeline)
+bio_doc <- AnnotatedPlainTextDocument(bio, bio_annotations)
+
+head(bio_doc)
+```
+
+
+Como antes, poderíamos extrair palavras e sentenças usando os métodos "getter"" words () e sents (). Infelizmente, não existe uma maneira comparativamente fácil de extrair entidades de nomes de documentos. Mas a função abaixo fará o truque.
+
+
+```{r}
+# Extract entities from an AnnotatedPlainTextDocument
+entities <- function(doc, kind) {
+  s <- doc$content
+  a <- annotation(doc)
+  if(hasArg(kind)) {
+    k <- sapply(a$features, `[[`, "kind")
+    s[a[k == kind]]
+  } else {
+    s[a[a$type == "entity"]]
+  }
+}
+```
+
+Agora podemos extrair todas as entidades nomeadas usando entidades (bio_doc) e tipos específicos de entidades usando o argumento kind =. Vamos reunir todas as pessoas, lugares e organizações.
+
+
+```{r}
+entities(bio_doc, kind = "person")
+```
+
+
+```{r}
+entities(bio_doc, kind = "location")
+```
+
+
+
+```{r}
+entities(bio_doc, kind = "organization")
+```
+
+
+o poder quanto as limitações da PNL. Conseguimos extrair todas as pessoas nomeadas no texto: Jarena Lee, Richard Allen e Joseph Lee. Mas os seis filhos de Jarena Lee não foram detectados. Tanto New Jersey quanto Philadelphia foram detectados, mas “Snow Hill, New Jersey” não foi, talvez porque “snow” e “hill” enganaram o algoritmo fazendo-o pensar que eram substantivos comuns. A Igreja Episcopal Metodista Africana de Betel foi detectada, mas não a igreja afro-americana sem nome em Snow Hill; indiscutivelmente “metodistas” também é uma instituição.
+
+É claro que dificilmente confiaríamos na PNL para textos curtos como este. A PNL é potencialmente útil quando aplicada a textos de maior extensão - especialmente a mais textos do que poderíamos ler por conta própria. Na próxima seção, estenderemos a PNL a um pequeno corpus de textos maiores.
+
+
+Reconhecimento de entidade nomeada em um pequeno corpus
+
+Agora que sabemos como extrair pessoas e lugares de um texto, podemos fazer a mesma coisa com um pequeno corpus de textos. O código seria idêntico, ou quase, para um corpus muito maior. Para este exercício, usaremos três livros de pregadores itinerantes nos Estados Unidos do século XIX:
+
+Peter Cartwright, Autobiography of Peter Cartwright, the Backwoods Preacher, editado por W. P. Strickland (Nova York, 1857).
+Jarena Lee, Experiência Religiosa e Jornal da Sra. Jarena Lee (Filadélfia, 1849).
+Parley Parker, The Autobiography of Parley Parker Pratt (Nova York, 1874).
+
+Essas três pessoas foram contemporâneas rudes. Peter Cartwright (1785-1872) foi um metodista; Jarena Lee (1783–?) Era um membro da Igreja Episcopal Metodista Africana; Parley Parker Pratt (1807–1857) foi um apóstolo mórmon. Seus livros foram baixados e OCR do Google Livros. Por serem em sua maioria autobiográficos, os lugares e as pessoas que eles mencionam eram, em geral, os lugares que eles visitaram e as pessoas que conheceram. O reconhecimento de uma entidade nomeada provavelmente produzirá uma imagem mais próxima da experiência real, em vez dos mundos imaginários dessas pessoas. Esses textos não são de forma alguma perfeitamente OCR, mas eles representam textos da qualidade com que os historiadores muitas vezes têm de trabalhar.
+
+Ao longo deste exercício, usaremos os recursos de programação funcional de R, especialmente lapply () para realizar as mesmas ações em cada texto. Poderíamos possivelmente copiar cada um dos comandos para todos os três textos, alterar os nomes dos arquivos e variáveis conforme necessário. Mas essa seria uma receita para o desastre ou, mais provavelmente, para um erro sutil. Ao manter o princípio de programação DRY - não se repita - podemos evitar complicações desnecessárias. Tão importante quanto, nosso código será extensível não apenas a 3 documentos, mas a 300 ou 3.000.
+
+Antes de começar, temos que carregar as bibliotecas necessárias
+
+```{r}
+library(NLP)
+library(openNLP)
+library(magrittr)
+```
+
+
+Vamos começar encontrando os caminhos para cada um dos arquivos usando a função Sys.glob () de R, que procura curingas em nomes de arquivo.
+
+```{r}
+filenames <- Sys.glob("/Volumes/Data HD/Data Science/GITHUB/Courses_DataScience/NLP/*.txt")
+filenames
+```
+
+
+Agora podemos usar lapply () para aplicar a função readLines () a cada nome de arquivo. O resultado será uma lista com um item por arquivo. E já que estamos nisso, podemos usar paste0 () para combinar cada linha dos arquivos em um único vetor de caracteres, e as.String () para convertê-los no formato que os pacotes NLP esperam. Finalmente, podemos atribuir os nomes dos arquivos aos itens da lista.
+
+```{r}
+texts <- filenames %>%
+  lapply(readLines) %>%
+  lapply(paste0, collapse = " ") %>%
+  lapply(as.String)
+
+names(texts) <- basename(filenames)
+
+str(texts, max.level = 1)
+```
+
+Em seguida, precisamos seguir as etapas que usamos acima para anotar um documento e abstraí-lo em uma função. Isso nos permitirá usar a função com lapply (). Também nos permitirá reutilizar o código em projetos futuros. Esta função retornará um objeto da classe AnnotatedPlainTextDocument.
+
+
+```{r}
+annotate_entities <- function(doc, annotation_pipeline) {
+  annotations <- annotate(doc, annotation_pipeline)
+  AnnotatedPlainTextDocument(doc, annotations)
+}
+```
+
+Agora podemos definir o pipeline de funções de anotação nas quais estamos interessados. Usaremos apenas pessoa e locais:
+
+
+```{r}
+itinerants_pipeline <- list(
+  Maxent_Sent_Token_Annotator(),
+  Maxent_Word_Token_Annotator(),
+  Maxent_Entity_Annotator(kind = "person"),
+  Maxent_Entity_Annotator(kind = "location")
+)
+```
+
+
+Agora podemos chamar nossa função annotate_entities () em cada item de nossa lista. (Esta função levará um tempo considerável: um pouco mais de meia hora no meu computador.)
+
+
+```{r}
+# We won't actually run this long-running process. Instead we will just load the
+# cached results.
+load("/Volumes/Data HD/Data Science/GITHUB/Courses_DataScience/NLP/nlp-cache.rda")
+```
+
+```{r}
+texts_annotated <- texts %>%
+  lapply(annotate_entities, itinerants_pipeline)
+```
+
+Agora é possível usar nossa função entity () definida acima para extrair as informações relevantes. Poderíamos manter tudo isso em um único objeto de lista, mas para evitar que seja pesado, criaremos uma lista de locais e de pessoas mencionadas em cada texto.
+
+
+```{r}
+places <- texts_annotated %>%
+  lapply(entities, kind = "location")
+
+people <- texts_annotated %>%
+  lapply(entities, kind = "person")
+```
+
+Algumas estatísticas nos darão uma noção do que conseguimos extrair. Podemos contar o número de itens, bem como o número de itens exclusivos para cada texto.
+
+```{r}
+# Total place mentions 
+places %>%
+  sapply(length)
+```
+
+```{r}
+# Unique places
+places %>%
+  lapply(unique) %>%
+  sapply(length)
+```
+
+```{r}
+people %>%
+  sapply(length)
+```
+
+```{r}
+people %>%
+  lapply(unique) %>%
+  sapply(length)
+```
+
+
+Poderíamos fazer muito com essa informação. Poderíamos melhorar as listas editando-as com nosso conhecimento de historiadores. Em particular, poderíamos geocodificar os locais e criar um mapa do mundo de cada itinerante. (Veja o capítulo sobre mapeamento.) Também criamos uma lista simples de pessoas e lugares, sem levar em conta onde eles estão no documento. Mas temos a localização exata de cada pessoa e lugar no documento, e poderíamos usar essa informação para análise posterior.
+
+
+```{r}
+library(ggmap)
+```
+
+
+```{r}
+all_places <- union(places[["pratt-parley.txt"]], places[["cartwright-peter.txt"]]) %>% union(places[["lee-jarena.txt"]])
+# all_places_geocoded <- geocode(all_places)
+```
+
+
+
+

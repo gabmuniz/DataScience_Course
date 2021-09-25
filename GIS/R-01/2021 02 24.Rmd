@@ -1,0 +1,184 @@
+---
+title: "R Geo Analysis"
+output: html_notebook
+---
+
+Sempre que participo de um Science Slam, procuro trabalhar na análise de algo típico da respectiva cidade. Meu próximo show será em Munique, então há duas opções naturais: cerveja ou futebol. No final, escolho os dois, mas aqui vou me concentrar no primeiro.
+
+```{r}
+#used packages
+library(tidyverse)  # for data wrangling
+library(TSP) #solving Traveling Salesman problems
+#library(ggmap) #maps in ggplot2
+library(leaflet) #interactive maps
+library(rJava)
+library(OpenStreetMap)
+```
+
+
+Munique é, entre outras coisas, famosa por seus jardins. Se você não é alemão o suficiente para saber o que é um beergarden, bem, é simplesmente uma área ao ar livre onde cerveja e alguma comida local são servidas. O conceito na verdade se originou em Munique, onde você pode encontrar uma enorme quantidade deles. Encontrei esta página, que lista 114 em Munique e arredores! Eu limpei a lista deles e adicionei Longitude / Latitude, bem como a cervejaria que fornece a cerveja. Você pode encontrar os dados como um arquivo csv no github. 
+
+```{r}
+#file <- file.choose()
+#file
+
+df_beer <- read.csv("/Volumes/Data HD/Data Science/GITHUB/Courses_DataScience/GIS/R-01/beergarden.csv")
+glimpse(df_beer)
+```
+
+
+Podemos traçar a localização dos beergardens usando o pacote ggmap.
+
+
+```{r}
+### Get a map with Marienplatz as center 
+library(OpenStreetMap)
+
+map <- get_map(location = c(11.5773133,48.1382570), zoom = 9,
+               maptype = "roadmap",source="google",color="bw")
+
+ggmap(map)+
+  geom_point(data=df_beer,aes(x=Long,y=Lat),size=2,alpha=0.75,col="goldenrod3")+
+  scale_x_continuous(limits=c(11.01,11.99))+
+  scale_y_continuous(limits=c(47.740,48.46))+
+  theme(legend.position="bottom",
+        text=element_text(size=16),
+    aspect.ratio = .9,
+    axis.ticks = element_blank(),
+    axis.text = element_blank())+
+  labs(x="",y="")
+```
+
+
+Na próxima seção, explico brevemente o que faremos com os dados. Se você já está familiarizado com o problema do caixeiro viajante, que em nosso caso se torna o problema do bebedor de cerveja viajante, pode pular essa parte com segurança.
+
+##Problema do caixeiro viajante
+
+O que vamos examinar agora é o chamado problema do caixeiro viajante. A declaração do problema é a seguinte:
+“Dada uma lista de cidades e as distâncias entre cada par de cidades, qual é o trajeto mais curto possível que visita cada cidade e retorna à cidade de origem?”
+O problema foi formulado em 1930 e é um dos problemas mais estudados em otimização, usado como referência para vários métodos de otimização. Resolver esse problema, no entanto, é difícil. Na verdade, é NP difícil. Mas, apesar das dificuldades computacionais,
+existe um grande número de heurísticas e algoritmos exatos para resolver o problema. Instâncias com dezenas de milhares de cidades podem ser resolvidas com exatidão e até mesmo problemas com milhões de cidades podem ser bem aproximados.
+O método também foi usado por Randal Olson para criar uma viagem de ida e volta aos parques nacionais dos EUA.
+
+Resolvendo o problema do bebedor de cerveja em viagem
+Para resolver o problema do bebedor de cerveja em viagem, primeiro precisamos das distâncias entre os jardins de cerveja. Você pode usar as distâncias euclidianas se for um apartamento de outrora, mas se não acredita em ideias malucas, pode querer usar a função distGeo () do pacote geosfera. 
+
+(Tecnicamente, isso também não é totalmente correto, uma vez que estamos calculando distâncias "em linha reta" e não usando conexões rodoviárias).
+
+
+```{r}
+n <- nrow(df_beer)
+beer_dist <- matrix(0,n,n)
+for(i in 1:n){
+  for(j in 1:n){
+    beer_dist[i,j] <- geosphere::distGeo(c(df_beer$Long[i],df_beer$Lat[i]),
+                                         c(df_beer$Long[j],df_beer$Lat[j]))
+  }
+}
+```
+
+
+Com as distâncias disponíveis, agora podemos resolver o problema com o pacote TSP. Para usar o melhor algoritmo possível, você precisa fazer o download dos executáveis concorde e linkern para o seu sistema operacional aqui. Use concorde_path () para permitir que R saiba onde os executáveis estão localizados.
+
+Você também pode simplesmente usar o método padrão, uma vez que nosso problema é bastante pequeno.
+
+
+```{r}
+beer_tsp <- TSP(beer_dist,labels=df_beer$name)
+beer_route <- solve_TSP(beer_tsp,method="concorde")
+#default:
+#beer_route <- solve_TSP(beer_tsp,control=list(repetitions=100,two_opt=TRUE))
+```
+
+
+A função tour_length () nos diz quanto tempo é o passeio. Nosso passeio beergarden, por exemplo, tem 437,21 km de extensão (para meus amigos americanos: isso deve ter cerca de 271,67 milhas). Vamos colocá-lo em um mapa.
+
+
+```{r}
+#turn tour into integer sequence for plotting 
+beer_route <- as.integer(beer_route)
+beer_route <- c(beer_route,beer_route[1])
+
+ggmap(map)+
+  geom_path(data=df_beer[beer_route,],aes(x=Long,y=Lat))+
+  geom_point(data=df_beer,aes(x=Long,y=Lat),size=2,col="goldenrod3")+
+  scale_x_continuous(limits=c(11.01,11.99))+
+  scale_y_continuous(limits=c(47.740,48.46))+
+  theme(legend.position="bottom",
+        text=element_text(size=16),
+        aspect.ratio = 0.9,
+        axis.ticks = element_blank(),
+        axis.text = element_blank())+
+  labs(x="",y="")
+```
+
+
+Se gosta de mapas interativos, pode usar o pacote do folheto.
+
+
+```{r}
+m1 <- df_beer %>% 
+  mutate(popup_text=paste(sep = "<br/>", paste0("<b>", Name, "</b>"), Biermarke)) %>%
+leaflet() %>% 
+  addTiles()  %>%  
+  setView(11.5773133,48.1382570, zoom = 10) %>% 
+  addPolylines(data=df_beer[beer_route,],lat=~Lat,lng=~Long) %>% 
+  addCircleMarkers(lng=~Long,
+             lat=~Lat,
+             popup = ~popup_text,
+             radius=4,
+             color = "black",
+             stroke=FALSE,
+             fillOpacity = 0.7)
+m1
+```
+
+
+Ao clicar em um beergarden, você verá o nome e a cervejaria que o fornece.
+
+Mais de 400 km (240 milhas) certamente não é algo que pode ser feito em um único dia. Reduzimos um pouco o problema agora e apenas olhamos para os jardins que estão a não mais de 15 km (9,32 milhas) de distância da Marienplatz.
+
+
+```{r}
+center <- c(11.5773133,48.1382570)
+center_dist <- rep(0,n)
+for(i in 1:n){
+    center_dist[i] <- geosphere::distGeo(c(df_beer$Long[i],df_beer$Lat[i]),
+                                         center)
+}
+
+#Beergarden less than 15km from Marienplatz
+idx <- which(center_dist<=15000)
+
+beer_tsp <- TSP(beer_dist[idx,idx],labels=df_beer$Name[idx])
+beer_route_small <- solve_TSP(beer_tsp,method="concorde")
+```
+
+
+Isso nos dá um passeio de 77 beergarden com 168,94 km (104,98 milhas). Possível em um dia, eu diria. No entanto, eu não recomendaria beber um Weißbier em cada beergarden. Isso pode muito bem matar você.
+
+O mapa interativo abaixo mostra a rota.
+
+
+```{r}
+beer_route_small <- as.integer(beer_route_small)
+beer_route_small <- c(beer_route_small,beer_route_small[1])
+
+m2 <- df_beer %>% 
+  mutate(popup_text=paste(sep = "<br/>", paste0("<b>", Name, "</b>"), Biermarke)) %>%
+  leaflet() %>% 
+  addTiles()  %>%  
+  setView(11.5773133,48.1382570, zoom = 10) %>% 
+  addPolylines(data=df_beer[idx[beer_route_small],],lat=~Lat,lng=~Long,col="red") %>% 
+  addCircleMarkers(lng=~Long,
+             lat=~Lat,
+             popup=~popup_text,
+             radius=4,
+             color = "black",
+             stroke=FALSE,
+             fillOpacity = 0.7)
+m2
+```
+
+
+

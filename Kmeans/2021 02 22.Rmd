@@ -1,0 +1,427 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+# Importar Data
+```{r}
+#library "rattle" para utilizar o data set wines
+library(rattle)
+```
+
+# Importar Data
+```{r}
+data(wine)
+head(wine)
+```
+
+O K-mean visa agrupar as observações de modo a minimizar a soma dos quadrados dentro do cluster (WCSS). No caso, o número de clusters a ser utilizado é 3.
+
+
+# Verificar as categorias
+
+```{r}
+
+#calcular o número ótimo de clusters
+#fviz_nbclust(wine, kmeans, method = "gap_stat")
+
+# To standarize the variables
+wine.stand <- scale(wine[-1])
+
+#cl <- round(sqrt(nrow(wine)/2))
+#cl
+
+# kmeans - divide in 3 clusters
+k.means.fit <- kmeans(wine.stand, 3) 
+```
+
+Em attributes, são apresentados todos os elementos do cluster:
+
+```{r}
+# Overview - all the elements of the cluster 
+attributes(k.means.fit)
+```
+
+Cálculo dos centróides:
+
+```{r}
+# Centroids:
+k.means.fit$centers
+```
+
+
+Agrupamento das observações em cada cluster, de acordo com o centróide:
+
+```{r}
+# Clusters:
+k.means.fit$cluster
+```
+
+
+Sumário do número de observações por cluster:
+
+```{r}
+# Cluster size:
+k.means.fit$size
+```
+
+# Clustering pelo Método de Elbow
+
+Pelo Método de Elbow, podemos determinar o valor do parâmetro k plotando um gráfico da porcentagem da variância em relação ao número de clusters. No caso, analisando 6 clusters, escolhemos o valor 3 porque a partir desse valor ocorre prejuízo da explicação da variância pelos clusters.
+
+
+```{r}
+wssplot <- function(data, nc=15, seed=1234){
+  wss <- (nrow(data)-1)*sum(apply(data,2,var))
+  for (i in 2:nc){
+    set.seed(seed)
+    wss[i] <- sum(kmeans(data, centers=i)$withinss)}
+  plot(1:nc, wss, type="b", xlab="Number of Clusters",
+       ylab="Within groups sum of squares")}
+
+wssplot(wine.stand, nc=6) 
+```
+
+
+
+Utilizamos a library Cluster para representar o agrupamento dos clusters em 2D.
+
+
+```{r}
+library(cluster)
+
+clusplot(wine.stand, k.means.fit$cluster, main='2D representation of the Cluster solution',
+         color=TRUE, shade=TRUE,
+         labels=2, lines=0)
+```
+
+
+Matriz de Confusão para avaliar a perfomance do agrupamento em clusters:
+
+```{r}
+table(wine[,1],k.means.fit$cluster)
+```
+
+
+# Clustering utilizando a distância Euclidiana
+
+É utilizada a distância Euclidiana como algoritmo para calcular o agrupamento dos clusters. A escolha do método altera o cálculo das distâncias e o agrupamento em clusters.
+
+
+```{r}
+d <- dist(wine.stand, method = "euclidean") # Euclidean distance matrix.
+```
+
+```{r}
+H.fit <- hclust(d, method="ward.D2")
+```
+
+
+O output do cluster pode ser visualizado em um dendograma:
+
+
+
+```{r}
+plot(H.fit) # display dendogram
+groups <- cutree(H.fit, k=3) # cut tree into 5 clusters
+# draw dendogram with red borders around the 5 clusters
+rect.hclust(H.fit, k=3, border="red") 
+```
+
+
+Matriz de Confusão para analisar o agrupamento:
+
+
+
+```{r}
+table(wine[,1],groups)
+```
+
+
+
+# Study Case I: European Protein Consumtion
+
+
+Consideramos o número de países n=25 e o consumo de proteínas (%) por cada fonte alimentícia:
+
+
+```{r}
+url = 'http://www.biz.uiowa.edu/faculty/jledolter/DataMining/protein.csv'
+food <- read.csv(url)
+head(food)
+```
+
+
+O primeiro agrupamento em clusters é realizado somente em Red Meat e White Meat (p=2) e k=3 clusters:
+
+
+```{r}
+set.seed(123456789) ## to fix the random starting clusters
+grpMeat <- kmeans(food[,c("WhiteMeat","RedMeat")], centers=3, nstart=10)
+grpMeat
+
+```
+
+
+É realizado o agrupamento dos dois parâmetros Red Meat e White Meat como um único "grupo carne":
+
+
+```{r}
+## list of cluster assignments
+o=order(grpMeat$cluster)
+data.frame(food$Country[o],grpMeat$cluster[o])
+
+```
+
+
+
+Plotamos um Scatterplot representando graficamente a disposição em clusters segundo o consumo do "grupo carne" (por país):
+
+```{r}
+plot(food$Red, food$White, type="n", xlim=c(3,19), xlab="Red Meat", ylab="White Meat")
+text(x=food$Red, y=food$White, labels=food$Country,col=grpMeat$cluster+1)
+```
+
+
+
+Em seguida, agrupamos todos os nove grupos de proteínas e preparamos o programa para criar sete agrupamentos. Os aglomerados resultantes, mostrados em cores em um gráfico de dispersão de carne branca contra carne vermelha (qualquer outro par de características pode ser selecionado), na verdade fazem muito sentido. Os países em proximidade geográfica tendem a ser agrupados no mesmo grupo.
+
+
+```{r}
+## same analysis, but now with clustering on all
+## protein groups change the number of clusters to 7
+set.seed(123456789)
+grpProtein <- kmeans(food[,-1], centers=7, nstart=10)
+o=order(grpProtein$cluster)
+data.frame(food$Country[o],grpProtein$cluster[o])
+```
+
+
+
+```{r}
+library(cluster)
+clusplot(food[,-1], grpProtein$cluster, main='2D representation of the Cluster solution', color=TRUE, shade=TRUE, labels=2, lines=0)
+
+```
+
+
+
+
+
+Alternativamente, podemos implementar uma abordagem hierárquica. Usamos a função agnes no cluster de pacote. O argumento diss = FALSE indica que usamos a matriz de dissimilaridade que está sendo calculada a partir dos dados brutos. O argumento metric = “euclidiano” indica que usamos a distância euclidiana. Nenhuma padronização é usada e a função de ligação é a ligação “média”.
+
+### função agnes ?
+### matriz de dissimilaridade?
+### Leitura de dendograma ?
+
+
+```{r}
+
+foodagg=agnes(food,diss=FALSE,metric="euclidian")
+plot(foodagg, main='Dendrogram') ## dendrogram
+groups <- cutree(foodagg, k=3) # cut tree into 3 clusters
+rect.hclust(foodagg, k=3, border="red")
+
+```
+
+
+# Study Case II: Customer Segmentation
+
+
+Agrupamento de Clientes de acordo com suas características, visando atender melhor às suas necessidades.
+
+
+```{r}
+#load file
+path = "/media/angelica/Dados/Dev/GitHub/DataScience Courses/Kmeans/"
+
+```
+
+```{r}
+offers<-read.table("/media/angelica/Dados/Dev/GitHub/DataScience Courses/Kmeans/offers.csv", sep = ',', header=T)
+head(offers)
+```
+
+
+```{r}
+transactions<-read.table("/media/angelica/Dados/Dev/GitHub/DataScience Courses/Kmeans/transactions.csv", sep = ',', header=T)
+head(transactions)
+```
+
+
+É realizada uma matriz de transação, a partir do cruzamento dos dados das ofertas realizadas com o histórico de transação de cada cliente.
+
+
+```{r}
+library(reshape)
+pivot<-melt(transactions[1:2])
+```
+
+```{r}
+## Using CustomerLastName as id variables
+pivot<-(cast(pivot,value~Customer.Last.Name,fill=0,fun.aggregate=function(x) length(x)))
+pivot<-cbind(offers,pivot[-1])
+```
+
+
+Geração da pivot.table com as informações de oferta x transação:
+
+Oferta: colunas
+Transação: linha
+
+```{r}
+
+# write.csv(file="pivot.csv",pivot) # to save your data
+
+cluster.data<-pivot[,8:length(pivot)]
+cluster.data<-t(cluster.data)
+head(cluster.data)
+```
+
+
+
+
+Utilizaremos k = 4 clusters inicialmente, selecionado de forma aleatória.
+
+Precisamos calcular a distância de cada cliente da média do cluster. Para fazer isso, poderíamos usar muitas distâncias / índice de dissimilaridade, um dos quais é a dissimilaridade de Gower.
+
+
+
+```{r}
+library(cluster)
+D=daisy(cluster.data, metric='gower')
+```
+
+
+Após a criação de uma matriz de distância, implementamos um procedimento de agrupamento hierárquico de Ward:
+
+
+```{r}
+H.fit <- hclust(D, method="ward.D2")
+```
+
+```{r}
+plot(H.fit) # display dendrogram
+
+groups <- cutree(H.fit, k=4) # cut tree into 4 clusters
+
+rect.hclust(H.fit, k=4, border="red")
+```
+
+```{r}
+# 2D representation of the Segmentation:
+clusplot(cluster.data, groups, color=TRUE, shade=TRUE,
+         labels=2, lines=0, main= 'Customer segments')
+```
+
+
+Para obter os melhores negócios, é necessário manipulação de dados. Primeiro, precisamos combinar nossos clusters e transações. Notavelmente, os comprimentos das "tabelas" que mantêm transações e clusters são diferentes. Portanto, precisamos de uma maneira de mesclar os dados. então usamos a função merge () e damos às nossas colunas nomes adequados:
+
+
+```{r}
+
+cluster.deals<-merge(transactions[1:2],groups,by.x = "Customer.Last.Name", by.y = "row.names")
+
+colnames(cluster.deals)<-c("Name","Offer","Cluster")
+head(cluster.deals)
+```
+
+
+
+
+Em seguida, queremos repetir o processo de dinamização para obter Ofertas em linhas e Clusters em colunas, contando o número total de transações para cada cluster. Assim que tivermos nossa pivot-table, iremos mesclá-la com a tabela de dados de ofertas como fizemos antes:
+
+
+```{r}
+# Get top deals by cluster
+cluster.pivot<-melt(cluster.deals,id=c("Offer","Cluster"))
+cluster.pivot<-cast(cluster.pivot,Offer~Cluster,fun.aggregate=length)
+cluster.topDeals<-cbind(offers,cluster.pivot[-1])
+head(cluster.topDeals)
+```
+
+
+# Study Case III: Social Network Clustering Analysis
+
+
+
+Para esta análise, usaremos um conjunto de dados que representa uma amostra aleatória de 30.000 alunos do ensino médio dos EUA que tinham perfis em uma rede social conhecida de 2006 a 2009.
+
+Das 500 primeiras palavras que aparecem em todas as páginas, 36 palavras foram escolhidas para representar cinco categorias de interesses, a saber: atividades extracurriculares, moda, religião, romance e comportamento anti-social. As 36 palavras incluem termos como futebol, sexy, beijo, bíblia, compras, morte e drogas. O conjunto de dados final indica, para cada pessoa, quantas vezes cada palavra apareceu no perfil da pessoa.
+
+
+```{r}
+teens <- read.csv("https://raw.githubusercontent.com/brenden17/sklearnlab/master/facebook/snsdata.csv")
+head(teens,3)
+```
+
+
+
+```{r}
+dim(teens)
+```
+
+
+Vamos também dar uma olhada rápida nas especificações dos dados. As primeiras linhas da saída str () são as seguintes:
+
+```{r}
+str(teens)
+```
+
+
+Como esperado, os dados incluem 30.000 adolescentes com quatro variáveisindicando características pessoais e 36 palavras indicando interesses. Observe que existem alguns NAs na variável gênero.
+
+```{r}
+summary(teens$age)
+```
+
+
+Omitindo valores NA:
+
+```{r}
+teens = na.omit(teens)
+dim(teens)
+```
+
+
+Começaremos nossa análise de cluster considerando apenas os 36 recursos que representam o número de vezes que vários interesses apareceram nos perfis dos adolescentes. Por conveniência, vamos fazer um frame de dados contendo apenas estes recursos.
+
+Para aplicar a padronização de pontuação z ao quadro de dados de interesses, podemos usar a função scale () com lapply ()
+
+Para dividir os adolescentes em cinco grupos, podemos usar o comando kmeans
+
+número de exemplos que se enquadram em cada um dos grupos. Se os grupos forem muito grandes ou pequenos, provavelmente não serão muito úteis. Para obter o tamanho dos clusters kmeans (), use o componente teen_clusters $ size a seguir:
+
+```{r}
+interests <- teens[5:40]
+
+interests_z <- as.data.frame(lapply(interests, scale))
+
+teen_clusters <- kmeans(interests_z, 5)
+
+teen_clusters$size
+```
+
+Para uma análise mais aprofundada dos clusters, podemos examinar as coordenadas dos centróides do cluster usando o componente teen_clusters $ centers, que é o seguinte para os primeiros oito recursos:
+
+
+```{r}
+teen_clusters$centers
+```
+
+A caracterização do cluster pode ser obtida com gráficos de pizza:
+
+```{r}
+par(mfrow=c(2,2))
+pie(colSums(interests[teen_clusters$cluster==1,]),cex=0.5)
+
+pie(colSums(interests[teen_clusters$cluster==2,]),cex=0.5)
+
+pie(colSums(interests[teen_clusters$cluster==3,]),cex=0.5)
+
+pie(colSums(interests[teen_clusters$cluster==4,]),cex=0.5)
+```
+
